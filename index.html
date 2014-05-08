@@ -1,0 +1,420 @@
+<!--
+
+The MIT License (MIT)
+
+Copyright (C) 2014 Intel Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+Description:
+ This is a sample index.html. Users can tune according to their needs
+-->
+
+<!DOCTYPE html>
+<html>
+
+<head>
+	<script>
+		var root_path = 'http://localhost:9999/';
+		var xmlhttp;
+		var start = 0;
+		var refresh_interval = 5;
+		var refreshIntervalId;
+		var domain_name;
+		var max_domains = 10;
+		var max_sub_domains = 10;
+		var csv_store_headers = '';
+		var log_enable = 0;
+		var csv_store = '';
+
+		function init_array(rows, cols, defaultValue) {
+			var array = [];
+			for (var i = 0; i < rows; i++) {
+				array.push([]);
+				array[i].push(new Array(cols));
+				for (var j = 0; j < cols; j++) {
+					array[i][j] = defaultValue;
+				}
+			}
+
+			return array;
+		}
+
+		var energy_store = init_array(max_domains, max_domains, 0);
+		var max_energy_store = init_array(max_domains, max_domains, 0);
+
+		function addRow(tableID, name, value) {
+
+			var table = document.getElementById(tableID);
+			var rowCount = table.rows.length;
+			var row = table.insertRow(rowCount);
+
+			var cell0 = row.insertCell(0);
+			cell0.innerHTML = name;
+			var cell1 = row.insertCell(1);
+			cell1.innerHTML = value;
+
+
+			var cell2 = row.insertCell(2);
+			cell2.innerHTML = '000.00W';
+
+		}
+
+		function deleteRow(tableID) {
+			var table = document.getElementById(tableID);
+			var rowCount = table.rows.length;
+
+			for (var i = 0; i < rowCount; i++) {
+				var row = table.rows[i];
+				var chkbox = row.cells[0].childNodes[0];
+				if (null != chkbox && true == chkbox.checked) {
+					table.deleteRow(i);
+					rowCount--;
+					i--;
+				}
+			}
+		}
+
+		function deleteAllRows(tableID) {
+			var table = document.getElementById(tableID);
+			var rowCount = table.rows.length;
+
+			for (var i = 0; i < rowCount; i++) {
+				table.deleteRow(i);
+				rowCount--;
+				i--;
+			}
+		}
+
+		function print_table(tableID) {
+			var table = document.getElementById(tableID);
+			var rowCount = table.rows.length;
+
+			for (var i = 0; i < rowCount; i++) {
+				var row = table.rows[i];
+				console.log(row.cells[0].innerHTML,
+					row.cells[1].innerHTML,
+					row.cells[2].innerHTML);
+			}
+		}
+
+		function loadXMLDoc(url, cfunc) {
+			if (window.XMLHttpRequest) {
+				xmlhttp = new XMLHttpRequest();
+
+			} else {
+				xmlhttp =
+					new ActiveXObject("Microsoft.XMLHTTP");
+			}
+			xmlhttp.onreadystatechange = cfunc;
+			console.log('GET URL ' + url);
+			xmlhttp.open("GET", url, false);
+			xmlhttp.send();
+			console.log('Response recd');
+		}
+
+		function get_domain_name(tableid, domain, sub_domain) {
+			var domain_path;
+
+			if (sub_domain == -1) domain_path = root_path +
+				'rapl_domain_name/' + domain;
+			else domain_path = root_path + 'rapl_domain_name/' +
+				domain + '/' + sub_domain;
+
+			loadXMLDoc(domain_path, function () {
+				if (xmlhttp.readyState == 4 &&
+					xmlhttp.status == 200) {
+					if (sub_domain == -1) {
+						addRow(tableid,
+							xmlhttp.responseText, ' ', ' ');
+					} else {
+						addRow(tableid, ' ',
+							xmlhttp.responseText, ' ');
+					}
+					csv_store_headers = csv_store_headers + xmlhttp.responseText.replace(
+						/(\r\n|\n|\r)/gm, " ") + ',';
+					return;
+
+				}
+			});
+		}
+
+		function create_sub_domain_rows(domain, tableid) {
+			var count;
+			loadXMLDoc(root_path + 'rapl_domains_count/' + domain,
+				function () {
+					if (xmlhttp.readyState == 4 &&
+						xmlhttp.status == 200) {
+						count = xmlhttp.responseText;
+						for (var i = 0; i < count; ++i) {
+							get_domain_name(tableid, domain, i);
+						}
+					}
+				});
+		}
+
+		function create_domain_rows(tableid) {
+			loadXMLDoc(root_path + 'rapl_domains_count',
+				function () {
+					if (xmlhttp.readyState == 4 &&
+						xmlhttp.status == 200) {
+						var count = xmlhttp.responseText;
+						for (var i = 0; i < count; ++i) {
+							get_domain_name(tableid, i, -1);
+							create_sub_domain_rows(i, tableid);
+						}
+					}
+				});
+			csv_store_headers = csv_store_headers + '\r\n';
+		}
+
+
+		function getPower(domain, sub_domain, row) {
+			var url;
+			var curr_energy;
+			var power;
+			var diff;
+			var valid;
+			if (sub_domain == -1) url = root_path +
+				'rapl_domain_energy/' + domain;
+			else url = root_path + 'rapl_domain_energy/' +
+				domain + '/' + sub_domain;
+
+			loadXMLDoc(url, function () {
+				if (xmlhttp.readyState == 4 &&
+					xmlhttp.status == 200) {
+					curr_energy = xmlhttp.responseText;
+					if (curr_energy < energy_store[domain][
+						sub_domain + 1
+					]) {
+						if (max_energy_store[domain][sub_domain + 1]) {
+							diff = max_energy_store[domain][
+								sub_domain + 1
+							] -
+								energy_store[domain][
+									sub_domain + 1
+							];
+							diff = diff + curr_energy;
+						}
+					} else {
+						diff = curr_energy - energy_store[
+							domain][sub_domain + 1];
+					}
+					if (diff) {
+						power = diff / (1000000 * refresh_interval);
+						power = Math.round(power * 1000) / 1000;
+
+						if (energy_store[domain][sub_domain + 1]) {
+							row.cells[2].innerHTML = power + 'W';
+							if (log_enable)
+								csv_store = csv_store + power + ',';
+						} else {
+							row.cells[2].innerHTML = 'Sampling...';
+							if (log_enable)
+								csv_store = csv_store + '00.00' + ',';
+						}
+					}
+					energy_store[domain][sub_domain + 1] =
+						curr_energy;
+
+					return power;
+				}
+			});
+
+		}
+
+		function getMaxEnergy(domain, sub_domain) {
+			var url;
+			var max_energy;
+			var power;
+
+			if (sub_domain == -1)
+				url = root_path + 'rapl_domain_max_energy/' +
+					domain;
+			else
+				url = root_path + 'rapl_domain_max_energy/' +
+					domain + '/' + sub_domain;
+
+			loadXMLDoc(url, function () {
+				if (xmlhttp.readyState == 4 &&
+					xmlhttp.status == 200) {
+					max_energy_store[domain][
+						sub_domain + 1
+					] =
+						xmlhttp.responseText;
+				}
+			});
+		}
+
+		function update_table(tableID) {
+			var table = document.getElementById(tableID);
+			var rowCount = table.rows.length;
+			var domain_cnt = 0;
+			var sub_domain_cnt = 0;
+			var power;
+
+			domain_cnt = -1;
+
+			for (var i = 0; i < rowCount; i++) {
+				var row = table.rows[i];
+				if (domain_cnt >= max_domains) break;
+				if (sub_domain_cnt >= max_sub_domains)
+					break;
+				if (row.cells[0].innerHTML == ' ') {
+					getPower(domain_cnt, sub_domain_cnt,
+						row);
+					sub_domain_cnt = sub_domain_cnt + 1;
+				} else {
+					sub_domain_cnt = 0;
+					domain_cnt = domain_cnt + 1;
+					getPower(domain_cnt, -1, row);
+				}
+			}
+			if (log_enable)
+				csv_store = csv_store + '\r\n';
+		}
+
+		function startFunction(tableid) {
+			var sub_domain_cnt = 0;
+			var table = document.getElementById(tableid);
+			var rowCount;
+
+			var store_refresh_interval = refresh_interval;
+			if (start == 1)
+				return;
+			start = 1;
+			csv_store = '';
+			csv_store_headers = '';
+			deleteAllRows(tableid);
+			create_domain_rows(tableid);
+			domain_cnt = -1;
+			rowCount = table.rows.length;
+			for (var i = 0; i < rowCount; i++) {
+				var row = table.rows[i];
+				if (domain_cnt >= max_domains) break;
+				if (sub_domain_cnt >= max_sub_domains)
+					break;
+				if (row.cells[0].innerHTML == ' ') {
+					getMaxEnergy(domain_cnt,
+						sub_domain_cnt, row);
+					energy_store[domain_cnt][
+						sub_domain_cnt + 1
+					] = 0;
+					sub_domain_cnt = sub_domain_cnt + 1;
+				} else {
+					sub_domain_cnt = 0;
+					domain_cnt = domain_cnt + 1;
+					getMaxEnergy(domain_cnt, -1, row);
+					energy_store[domain_cnt][
+						sub_domain_cnt
+					] = 0;
+				}
+				row.cells[2].innerHTML = '0.00' + 'W';
+			}
+			update_table(tableid);
+			refreshIntervalId = setInterval(function () {
+				update_table(tableid);
+			}, (refresh_interval * 1000));
+
+		}
+
+		function stopFunction() {
+			start = 0;
+			log_enable = 0;
+			clearInterval(refreshIntervalId);
+		}
+
+		function download(filename) {
+			var contentType = 'application/text';
+			var a = document.createElement('a');
+			var content;
+			content = csv_store_headers + csv_store;
+			var blob = new Blob([content], {
+				'type': contentType
+			});
+			a.href = window.URL.createObjectURL(blob);
+			a.download = filename;
+			a.click();
+		}
+
+		function log_start_stop(start) {
+			if (start == 'TRUE') {
+				log_enable = 1;
+				csv_store = '';
+			} else
+				log_enable = 0;
+		}
+
+		function updatePollInterval(id) {
+			var form = document.getElementById(id);
+
+			console.log('form data:' + form.value);
+			if (form.value > 0) {
+				refresh_interval = form.value;
+			}
+		}
+	</script>
+</head>
+
+<body>
+
+	<div style="width:600px;border:3px inset blue;text-align:center">
+		<h2>
+			Software Power Meter
+		</h2>
+		<button type="button" onclick="startFunction('domains')">
+			Start
+		</button>
+		<button type="button" onclick="stopFunction()">
+			Stop
+		</button>
+
+		<br>
+		<br>
+		<form name='pollIntervalForm'>
+			Poll Interval (Seconds)
+			<input type='text' onChange="updatePollInterval('poll_interval');"
+			id="poll_interval" />
+			<br />
+		</form>
+		<br>
+		<br>
+		<table id="domains" border="1" align="center" style="font-family:Georgia, Garamond, Serif;color:blue;font-style:italic;">
+		</table>
+		<br>
+		<button type="button" onclick="log_start_stop('TRUE')">
+			Enable Log
+		</button>
+		<button type="button" onclick="log_start_stop('FALSE')">
+			Disable Log
+		</button>
+		<button type="button" onclick="download('rapl_power_log.csv')">
+			Download
+		</button>
+		<br>
+		<h4>
+			Using Running Average Power Limit (RAPL) feature on
+		<br>
+			Intel&#174 Processors
+		</h4>
+	</div>
+
+</body>
+
+</html>
