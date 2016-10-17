@@ -698,6 +698,7 @@ static void daemonize(char *rundir, char *pidfile)
 	char str[10];
 	struct sigaction sig_actions;
 	sigset_t sig_set;
+	int ret;
 
 	if (getppid() == 1)
 		return;
@@ -736,10 +737,17 @@ static void daemonize(char *rundir, char *pidfile)
 		close(i);
 
  	i = open("/dev/null", O_RDWR);
-	dup(i);
-	dup(i);
+	ret = dup(i);
+	if (ret == -1)
+		exit(EXIT_FAILURE);
 
-	chdir(rundir);
+	ret = dup(i);
+	if (ret == -1)
+		exit(EXIT_FAILURE);
+
+	ret = chdir(rundir);
+	if (ret == -1)
+		exit(EXIT_FAILURE);
 
 	pid_file_handle = open(pidfile, O_RDWR | O_CREAT, 0600);
 	if (pid_file_handle == -1) {
@@ -757,7 +765,10 @@ static void daemonize(char *rundir, char *pidfile)
 		exit(1);
 	}
 	snprintf(str, sizeof(str), "%d\n", getpid());
-	write(pid_file_handle, str, strlen(str));
+	ret = write(pid_file_handle, str, strlen(str));
+	if (ret == -1)
+		exit(EXIT_FAILURE);
+
 	close(i);
 }
 
